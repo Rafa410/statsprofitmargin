@@ -77,6 +77,7 @@ class StatsProfitMargin extends Module
     {
         Configuration::deleteByName('PROFITMARGIN_EQUIVALENCE_SURCHARGE_ENABLED');
         Configuration::deleteByName('PROFITMARGIN_DEFAULT_SHIPPING_COST');
+        Configuration::deleteByName('PROFITMARGIN_SHIPPING_COST_TAX');
 
         foreach ($this->getAvailableTaxes() as $tax) {
             Configuration::deleteByName("PROFITMARGIN_EQUIVALENCE_SURCHARGE_{$tax['id_tax']}");
@@ -101,7 +102,7 @@ class StatsProfitMargin extends Module
 
         $this->context->smarty->assign('module_dir', $this->_path);
 
-        $output = $this->context->smarty->fetch($this->local_path.'views/templates/admin/configure.tpl');
+        $output = $this->context->smarty->fetch($this->local_path . 'views/templates/admin/configure.tpl');
 
         return $output.$this->renderForm();
     }
@@ -172,7 +173,10 @@ class StatsProfitMargin extends Module
             ),
         );
 
-        foreach($this->getAvailableTaxes() as $tax) {
+
+        $available_taxes = $this->getAvailableTaxes();
+
+        foreach ($available_taxes as $tax) {
             $config_form['form']['input'][] = array(
                 'type' => 'text',
                 'name' => "PROFITMARGIN_EQUIVALENCE_SURCHARGE_{$tax['id_tax']}",
@@ -190,6 +194,22 @@ class StatsProfitMargin extends Module
             'suffix' => '€', 
             'col' => 1,
         );
+
+        $config_form['form']['input'][] = array(
+            'type' => 'radio',
+            'name' => 'PROFITMARGIN_SHIPPING_COST_TAX',
+            'label' => $this->l('Shipping cost tax'),
+            'values' => array()
+        );
+        
+        foreach ($available_taxes as $tax) {
+            $shipping_cost_tax = &$config_form['form']['input'];
+            $shipping_cost_tax[array_key_last($shipping_cost_tax)]['values'][] = array(
+                'id' => "tax_{$tax['id_tax']}",
+                'value' => $tax['id_tax'],
+                'label' => $this->l($tax['name'])
+            );
+        }
 
         return $config_form;
     }
@@ -220,6 +240,7 @@ class StatsProfitMargin extends Module
         $config_form_values = array(
             'PROFITMARGIN_EQUIVALENCE_SURCHARGE_ENABLED' => Configuration::get('PROFITMARGIN_EQUIVALENCE_SURCHARGE_ENABLED', false),
             'PROFITMARGIN_DEFAULT_SHIPPING_COST' => Configuration::get('PROFITMARGIN_DEFAULT_SHIPPING_COST', null),
+            'PROFITMARGIN_SHIPPING_COST_TAX' => Configuration::get('PROFITMARGIN_SHIPPING_COST_TAX', 0),
         );
 
         foreach($this->getAvailableTaxes() as $tax) {
@@ -375,7 +396,7 @@ class StatsProfitMargin extends Module
         }
 
         $payment_tax = $this->getPaymentTax($payment_module, $revenue);
-        $shipping_cost = $this->getShippingCost();
+        $shipping_cost = $this->getShippingCost($id_order, Configuration::get('PROFITMARGIN_SHIPPING_COST_TAX', 0));
         
         $costs = $products_cost + $equivalence_surcharge + $payment_tax + $shipping_cost;
 
@@ -410,11 +431,34 @@ class StatsProfitMargin extends Module
         return $payment_tax;
     }
 
-    protected function getShippingCost()
+    protected function getShippingCost(int $id_order, int $id_tax) : float
     {
-        $shipping_cost = Configuration::get('PROFITMARGIN_DEFAULT_SHIPPING_COST', 0);
+        /** @var \Packlink\BusinessLogic\OrderShipmentDetails\OrderShipmentDetailsService $shipmentDetailsService */
+        $shipmentDetailsService = \Logeecom\Infrastructure\ServiceRegister::getService(
+            \Packlink\BusinessLogic\OrderShipmentDetails\OrderShipmentDetailsService::CLASS_NAME
+        );
+
+        $shipmentDetails = $shipmentDetailsService->getDetailsByOrderId((string)$id_order);
+
+        if (isset($shipmentDetails)) {
+            $tax_rate = $this->getTaxRate($id_tax);
+            $shipping_cost = $shipmentDetails->getShippingCost() * (1 + $tax_rate/100);
+        } else {
+            $shipping_cost = Configuration::get('PROFITMARGIN_DEFAULT_SHIPPING_COST', 0);
+        }
 
         return $shipping_cost;
+    }
+
+    protected function getTaxRate(int $id_tax) : float 
+    {
+        $sql = 'SELECT rate
+                FROM `' . _DB_PREFIX_ . 'tax`
+                WHERE `id_tax`=' . pSQL($id_tax);
+
+        $tax_rate = Db::getInstance()->getValue($sql);
+        
+        return $tax_rate ? $tax_rate : 0;        
     }
 
     protected function getEquivalenceSurcharge(float $wholesale_price, int $id_tax) : float 
