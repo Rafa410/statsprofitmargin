@@ -1,0 +1,29 @@
+{% if record.profitmargin is defined %}
+    <span 
+        data-toggle="pstooltip"
+        data-placement="top"
+        data-title="{{ record.profitmargin.margin | number_format(2, ',', '.')  }}%"
+        data-template='<div class="tooltip" role="tooltip">
+                            <div class="arrow"></div>
+                            <div 
+                                class="tooltip-inner 
+                                        {{
+                                            record.profitmargin.margin < 0 ? 'negative' : 
+                                            record.profitmargin.margin == 0 ? 'null' :
+                                            record.profitmargin.margin < 15 ? 'low' :
+                                            'high'
+                                         }}-margin
+                                "></div>
+                        </div>'
+        class="badge rounded tooltip-link 
+                {{ 
+                    record.profitmargin.profit < 0 ? 'negative' : 
+                    record.profitmargin.profit == 0 ? 'null' :
+                    record.profitmargin.profit < 5 ? 'low' :
+                    'high'
+                }}-profit
+        ">{{ record.profitmargin.profit | number_format(2, ',', '.') }} €
+    </span>
+{% else %}
+    <span> - </span>
+{% endif %}
