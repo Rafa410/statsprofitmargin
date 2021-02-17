@@ -43,16 +43,12 @@ class StatsProfitMargin extends Module
             'min' => '1.7.7',
             'max' => _PS_VERSION_
         ];
-
-        /**
-         * Set $this->bootstrap to true if your module is compliant with bootstrap (PrestaShop 1.6)
-         */
         $this->bootstrap = true;
 
         parent::__construct();
 
         $this->displayName = $this->l('Profit margin calculator');
-        $this->description = $this->l('Displays a column with the profit margin for each order in the \"Orders\" tab.');
+        $this->description = $this->l('Displays a column with the profit margin for each order in the "Orders" tab.');
 
         $this->confirmUninstall = $this->l('Are you sure you want to uninstall this module?');
     }
@@ -81,6 +77,11 @@ class StatsProfitMargin extends Module
 
         foreach ($this->getAvailableTaxes() as $tax) {
             Configuration::deleteByName("PROFITMARGIN_EQUIVALENCE_SURCHARGE_{$tax['id_tax']}");
+        }
+
+        foreach ($this->getAvailablePaymentModules() as $payment_module) {
+            Configuration::deleteByName("PROFITMARGIN_PAYMENT_FEE_BASE_{$payment_module['id_module']}");
+            Configuration::deleteByName("PROFITMARGIN_PAYMENT_FEE_PERCENTAGE_{$payment_module['id_module']}");
         }
 
         include(dirname(__FILE__).'/sql/uninstall.php');
@@ -143,8 +144,8 @@ class StatsProfitMargin extends Module
         $config_form = array(
             'form' => array(
                 'legend' => array(
-                'title' => $this->l('Settings'),
-                'icon' => 'icon-cogs',
+                    'title' => $this->l('Settings'),
+                    'icon' => 'icon-cogs',
                 ),
                 'input' => array(
                     array(
@@ -211,6 +212,27 @@ class StatsProfitMargin extends Module
             );
         }
 
+        
+        $available_payment_modules = $this->getAvailablePaymentModules();
+
+        foreach ($available_payment_modules as $payment_module) {
+            $config_form['form']['input'][] = array(
+                'type' => 'text',
+                'name' => "PROFITMARGIN_PAYMENT_FEE_BASE_{$payment_module['id_module']}",
+                'label' => $this->l($payment_module['name']),
+                'desc' => $this->l('Base fee'),
+                'suffix' => '€', 
+                'col' => 1,
+            );
+            $config_form['form']['input'][] = array(
+                'type' => 'text',
+                'name' => "PROFITMARGIN_PAYMENT_FEE_PERCENTAGE_{$payment_module['id_module']}",
+                'desc' => $this->l('Percentage fee'),
+                'suffix' => '%',
+                'col' => 1,
+            );
+        }
+
         return $config_form;
     }
 
@@ -232,6 +254,19 @@ class StatsProfitMargin extends Module
         return $taxes;
     }
 
+    protected function getAvailablePaymentModules() {
+        $sql = 'SELECT m.`id_module`, o.`payment` AS `name`
+                FROM `' . _DB_PREFIX_ . 'module` m 
+                INNER JOIN `' . _DB_PREFIX_ . 'orders` o 
+                    ON o.`module`=m.`name` 
+                WHERE m.`active`=1 
+                GROUP BY m.`id_module`';
+
+        $payment_modules = Db::getInstance()->executeS($sql);
+
+        return $payment_modules;
+    }
+
     /**
      * Set values for the inputs.
      */
@@ -243,8 +278,13 @@ class StatsProfitMargin extends Module
             'PROFITMARGIN_SHIPPING_COST_TAX' => Configuration::get('PROFITMARGIN_SHIPPING_COST_TAX', 0),
         );
 
-        foreach($this->getAvailableTaxes() as $tax) {
+        foreach ($this->getAvailableTaxes() as $tax) {
             $config_form_values["PROFITMARGIN_EQUIVALENCE_SURCHARGE_{$tax['id_tax']}"] = Configuration::get("PROFITMARGIN_EQUIVALENCE_SURCHARGE_{$tax['id_tax']}", 0);
+        }
+
+        foreach ($this->getAvailablePaymentModules() as $payment_module) {
+            $config_form_values["PROFITMARGIN_PAYMENT_FEE_BASE_{$payment_module['id_module']}"] = Configuration::get("PROFITMARGIN_PAYMENT_FEE_BASE_{$payment_module['id_module']}", 0);
+            $config_form_values["PROFITMARGIN_PAYMENT_FEE_PERCENTAGE_{$payment_module['id_module']}"] = Configuration::get("PROFITMARGIN_PAYMENT_FEE_PERCENTAGE_{$payment_module['id_module']}", 0);
         }
         
         return $config_form_values;
@@ -362,13 +402,15 @@ class StatsProfitMargin extends Module
     {
         $db = Db::getInstance();
 
-        $sql = 'SELECT `total_paid`, `module`
-                FROM `' . _DB_PREFIX_ . 'orders`
-                WHERE `id_order`=' . pSQL($id_order);
+        $sql = 'SELECT o.`total_paid`, m.`id_module`
+                FROM `' . _DB_PREFIX_ . 'orders` o
+                INNER JOIN `' . _DB_PREFIX_ . 'module` m
+                    ON m.`name`=o.`module`
+                WHERE id_order=' . pSQL($id_order);
 
         if ($order_general_info = $db->getRow($sql)) {
             $revenue = $order_general_info['total_paid'];
-            $payment_module = $order_general_info['module'];
+            $id_payment_module = $order_general_info['id_module'];
         }
 
         $sql = 'SELECT od.`original_wholesale_price`, od.`product_quantity` , t.`id_tax`, t.`rate`
@@ -381,7 +423,7 @@ class StatsProfitMargin extends Module
         $equivalence_surcharge = 0;
         $equivalence_surcharge_enabled = Configuration::get('PROFITMARGIN_EQUIVALENCE_SURCHARGE_ENABLED', false);
 
-        if($order_product_details = $db->executeS($sql)) {
+        if ($order_product_details = $db->executeS($sql)) {
             foreach ($order_product_details as $product) {
                 $wholesale_price = $product['original_wholesale_price'];
                 $tax_rate = $product['rate'] ;
@@ -395,10 +437,10 @@ class StatsProfitMargin extends Module
             }
         }
 
-        $payment_tax = $this->getPaymentTax($payment_module, $revenue);
+        $payment_fee = $this->getPaymentFee($id_payment_module, $revenue);
         $shipping_cost = $this->getShippingCost($id_order, Configuration::get('PROFITMARGIN_SHIPPING_COST_TAX', 0));
         
-        $costs = $products_cost + $equivalence_surcharge + $payment_tax + $shipping_cost;
+        $costs = $products_cost + $equivalence_surcharge + $payment_fee + $shipping_cost;
 
         $profit_margin['profit'] = $revenue - $costs;
         $profit_margin['margin'] = ($profit_margin['profit'] / $revenue) * 100;
@@ -406,29 +448,14 @@ class StatsProfitMargin extends Module
         return $profit_margin;
     }
 
-    protected function getPaymentTax(string $payment_module, float $revenue) : float 
+    protected function getPaymentFee(string $id_payment_module, float $revenue) : float 
     {
-        switch($payment_module) {
-            case 'stripe_official': 
-                $payment_base_tax = 0.25;
-                $payment_percentage_tax = 1.4;
-                break;
-            
-            case 'paypal':
-                $payment_base_tax = 0.35;
-                $payment_percentage_tax = 2.9;
-                break;
-
-            case 'ps_wirepayment':
-            default:
-                $payment_base_tax = 0;
-                $payment_percentage_tax = 0;
-                break;
-        }
+        $payment_fee_base = Configuration::get("PROFITMARGIN_PAYMENT_FEE_BASE_$id_payment_module");
+        $payment_fee_percentage = Configuration::get("PROFITMARGIN_PAYMENT_FEE_PERCENTAGE_$id_payment_module");
         
-        $payment_tax = $payment_base_tax + $revenue * ($payment_percentage_tax/100);
+        $payment_fee = $payment_fee_base + $revenue * ($payment_fee_percentage/100);
 
-        return $payment_tax;
+        return $payment_fee;
     }
 
     protected function getShippingCost(int $id_order, int $id_tax) : float
