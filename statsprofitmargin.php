@@ -36,7 +36,7 @@ class StatsProfitMargin extends Module
     {
         $this->name = 'statsprofitmargin';
         $this->tab = 'administration';
-        $this->version = '0.1';
+        $this->version = '0.2';
         $this->author = 'Rafa Soler';
         $this->need_instance = 0;
         $this->ps_versions_compliancy = [
@@ -211,11 +211,8 @@ class StatsProfitMargin extends Module
                 'label' => $this->l($tax['name'])
             );
         }
-
-        
-        $available_payment_modules = $this->getAvailablePaymentModules();
-
-        foreach ($available_payment_modules as $payment_module) {
+    
+        foreach ($this->getAvailablePaymentModules() as $payment_module) {
             $config_form['form']['input'][] = array(
                 'type' => 'text',
                 'name' => "PROFITMARGIN_PAYMENT_FEE_BASE_{$payment_module['id_module']}",
@@ -381,7 +378,7 @@ class StatsProfitMargin extends Module
     protected function getProfitMargin(int $id_order)
     {
         $db = Db::getInstance();
-        $sql = 'SELECT `profit`, `profit_margin` AS `margin`
+        $sql = 'SELECT `profit`, `margin`
                 FROM `' . _DB_PREFIX_ . 'order_profit_margin`
                 WHERE `id_order`=' . pSQL($id_order);
 
@@ -389,10 +386,14 @@ class StatsProfitMargin extends Module
 
         if ($profit_margin === false) {
             $profit_margin = $this->calculateProfitMargin($id_order);
-            /*$db->insert('order_profit_margin', array(
-                'id_order'	=> (int)$id_order,
-                'profit'	=> $profit,
-            ));*/
+            
+            $shipmentDetailsService = \Logeecom\Infrastructure\ServiceRegister::getService(
+                \Packlink\BusinessLogic\OrderShipmentDetails\OrderShipmentDetailsService::CLASS_NAME
+            );
+            $shipmentDetails = $shipmentDetailsService->getDetailsByOrderId((string)$id_order);
+            if (isset($shipmentDetails) && $shipmentDetails->getStatus() != 'pending') {
+                $db->insert('order_profit_margin', $profit_margin);    
+            }
         }
 
         return $profit_margin;
@@ -442,9 +443,10 @@ class StatsProfitMargin extends Module
         
         $costs = $products_cost + $equivalence_surcharge + $payment_fee + $shipping_cost;
 
+        $profit_margin['id_order'] = $id_order;
         $profit_margin['profit'] = $revenue - $costs;
         $profit_margin['margin'] = ($profit_margin['profit'] / $revenue) * 100;
-        
+
         return $profit_margin;
     }
 
@@ -467,7 +469,7 @@ class StatsProfitMargin extends Module
 
         $shipmentDetails = $shipmentDetailsService->getDetailsByOrderId((string)$id_order);
 
-        if (isset($shipmentDetails)) {
+        if (isset($shipmentDetails) && $shipmentDetails->getStatus() != 'pending') {
             $tax_rate = $this->getTaxRate($id_tax);
             $shipping_cost = $shipmentDetails->getShippingCost() * (1 + $tax_rate/100);
         } else {
