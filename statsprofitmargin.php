@@ -36,7 +36,7 @@ class StatsProfitMargin extends Module
     {
         $this->name = 'statsprofitmargin';
         $this->tab = 'administration';
-        $this->version = '0.3';
+        $this->version = '0.4';
         $this->author = 'Rafa Soler';
         $this->need_instance = 0;
         $this->ps_versions_compliancy = [
@@ -234,17 +234,14 @@ class StatsProfitMargin extends Module
     }
 
     protected function getAvailableTaxes() {
-        $sql = 'SELECT DISTINCT t.`id_tax`, tl.`name`
-                FROM `' . _DB_PREFIX_ . 'tax_lang` tl
-                 INNER JOIN `' . _DB_PREFIX_ . 'tax` t
-                    ON t.`id_tax`=tl.`id_tax`
-                 INNER JOIN `' . _DB_PREFIX_ . 'tax_rule` tr
-                    ON tr.`id_tax`=t.`id_tax`
-                 INNER JOIN `' . _DB_PREFIX_ . 'country` c 
-                    ON c.`id_country`=tr.`id_country`
-                 INNER JOIN `' . _DB_PREFIX_ . 'tax_rules_group` trg
-                    ON trg.`id_tax_rules_group`=tr.`id_tax_rules_group`
-                WHERE t.`active`=1 AND trg.active=1 AND c.`active`=1';
+        $sql = new DbQuery();
+        $sql->select('DISTINCT t.id_tax, tl.name');
+        $sql->from('tax_lang', 'tl');
+        $sql->innerJoin('tax', 't', 't.id_tax = tl.id_tax');
+        $sql->innerJoin('tax_rule', 'tr', 'tr.id_tax = t.id_tax');
+        $sql->innerJoin('country', 'c', 'c.id_country = tr.id_country');
+        $sql->innerJoin('tax_rules_group', 'trg', 'trg.id_tax_rules_group = tr.id_tax_rules_group');
+        $sql->where('t.active = 1 AND trg.active = 1 AND c.active = 1');
 
         $taxes = Db::getInstance()->executeS($sql);
 
@@ -252,12 +249,12 @@ class StatsProfitMargin extends Module
     }
 
     protected function getAvailablePaymentModules() {
-        $sql = 'SELECT m.`id_module`, o.`payment` AS `name`
-                FROM `' . _DB_PREFIX_ . 'module` m 
-                INNER JOIN `' . _DB_PREFIX_ . 'orders` o 
-                    ON o.`module`=m.`name` 
-                WHERE m.`active`=1 
-                GROUP BY m.`id_module`';
+        $sql = new DbQuery();
+        $sql->select('m.id_module, o.payment AS name');
+        $sql->from('module', 'm');
+        $sql->innerJoin('orders', 'o', 'o.module = m.name');
+        $sql->where('m.active = 1');
+        $sql->groupBy('m.id_module');
 
         $payment_modules = Db::getInstance()->executeS($sql);
 
@@ -381,9 +378,11 @@ class StatsProfitMargin extends Module
     protected function getProfitMargin(int $id_order)
     {
         $db = Db::getInstance();
-        $sql = 'SELECT `profit`, `margin`
-                FROM `' . _DB_PREFIX_ . 'order_profit_margin`
-                WHERE `id_order`=' . pSQL($id_order);
+        
+        $sql = new DbQuery();
+        $sql->select('profit, margin');
+        $sql->from('order_profit_margin');
+        $sql->where('id_order = ' . (int)$id_order);
 
         $profit_margin = $db->getRow($sql);
 
@@ -410,22 +409,22 @@ class StatsProfitMargin extends Module
     {
         $db = Db::getInstance();
 
-        $sql = 'SELECT o.`total_paid`, m.`id_module`
-                FROM `' . _DB_PREFIX_ . 'orders` o
-                INNER JOIN `' . _DB_PREFIX_ . 'module` m
-                    ON m.`name`=o.`module`
-                WHERE id_order=' . pSQL($id_order);
+        $sql = new DbQuery();
+        $sql->select('o.total_paid, m.id_module');
+        $sql->from('orders', 'o');
+        $sql->innerJoin('module', 'm', 'm.name = o.module');
+        $sql->where('o.id_order =' . (int)$id_order);
 
         if ($order_general_info = $db->getRow($sql)) {
             $revenue = $order_general_info['total_paid'];
             $id_payment_module = $order_general_info['id_module'];
         }
 
-        $sql = 'SELECT od.`original_wholesale_price`, od.`product_quantity` , t.`id_tax`, t.`rate`
-                FROM `' . _DB_PREFIX_ . 'order_detail` od
-                INNER JOIN `' . _DB_PREFIX_ . 'tax` t
-                    ON t.id_tax=od.id_tax_rules_group
-                WHERE od.id_order=' . pSQL($id_order);
+        $sql = new DbQuery();
+        $sql->select('od.original_wholesale_price, od.product_quantity, t.id_tax, t.rate');
+        $sql->from('order_detail', 'od');
+        $sql->innerJoin('tax', 't', 't.id_tax = od.id_tax_rules_group');
+        $sql->where('od.id_order =' . (int)$id_order);
 
         $products_cost = 0; // Sum of all products cost at wholesale price, taxes included
         $equivalence_surcharge = 0; // Sum of surcharges for each product
@@ -492,9 +491,10 @@ class StatsProfitMargin extends Module
 
     protected function getTaxRate(int $id_tax) : float 
     {
-        $sql = 'SELECT rate
-                FROM `' . _DB_PREFIX_ . 'tax`
-                WHERE `id_tax`=' . pSQL($id_tax);
+        $sql = new DbQuery();
+        $sql->select('rate');
+        $sql->from('tax');
+        $sql->where('id_tax =' . (int)$id_tax);
 
         $tax_rate = Db::getInstance()->getValue($sql);
         
