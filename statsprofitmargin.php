@@ -36,7 +36,7 @@ class StatsProfitMargin extends Module
     {
         $this->name = 'statsprofitmargin';
         $this->tab = 'administration';
-        $this->version = '0.2';
+        $this->version = '0.3';
         $this->author = 'Rafa Soler';
         $this->need_instance = 0;
         $this->ps_versions_compliancy = [
@@ -105,11 +105,11 @@ class StatsProfitMargin extends Module
 
         $output = $this->context->smarty->fetch($this->local_path . 'views/templates/admin/configure.tpl');
 
-        return $output.$this->renderForm();
+        return $output . $this->renderForm();
     }
 
     /**
-     * Create the form that will be displayed in the configuration of your module.
+     * Create the form that will be displayed in the configuration of the module.
      */
     protected function renderForm()
     {
@@ -137,7 +137,7 @@ class StatsProfitMargin extends Module
     }
 
     /**
-     * Create the structure of your form.
+     * Create the structure of the form.
      */
     protected function getConfigForm()
     {
@@ -375,6 +375,9 @@ class StatsProfitMargin extends Module
         return sprintf('@Modules/%s/views/templates/admin/', $this->name);
     }
 
+    /** 
+     * If available, get the profit & margin from the DB, otherwise calculate it 
+     */
     protected function getProfitMargin(int $id_order)
     {
         $db = Db::getInstance();
@@ -399,6 +402,10 @@ class StatsProfitMargin extends Module
         return $profit_margin;
     }
 
+    /**
+     * profit = revenue - costs
+     * margin = (profit / revenue) * 100
+     */
     protected function calculateProfitMargin(int $id_order) 
     {
         $db = Db::getInstance();
@@ -420,9 +427,9 @@ class StatsProfitMargin extends Module
                     ON t.id_tax=od.id_tax_rules_group
                 WHERE od.id_order=' . pSQL($id_order);
 
-        $products_cost = 0;
-        $equivalence_surcharge = 0;
-        $equivalence_surcharge_enabled = Configuration::get('PROFITMARGIN_EQUIVALENCE_SURCHARGE_ENABLED', false);
+        $products_cost = 0; // Sum of all products cost at wholesale price, taxes included
+        $equivalence_surcharge = 0; // Sum of surcharges for each product
+        $equivalence_surcharge_enabled = Configuration::get('PROFITMARGIN_EQUIVALENCE_SURCHARGE_ENABLED', false); // TODO: If disabled, calculate profit & margin accordingly (without taxes)
 
         if ($order_product_details = $db->executeS($sql)) {
             foreach ($order_product_details as $product) {
@@ -439,7 +446,7 @@ class StatsProfitMargin extends Module
         }
 
         $payment_fee = $this->getPaymentFee($id_payment_module, $revenue);
-        $shipping_cost = $this->getShippingCost($id_order, Configuration::get('PROFITMARGIN_SHIPPING_COST_TAX', 0));
+        $shipping_cost = $this->getShippingCost($id_order);
         
         $costs = $products_cost + $equivalence_surcharge + $payment_fee + $shipping_cost;
 
@@ -460,7 +467,11 @@ class StatsProfitMargin extends Module
         return $payment_fee;
     }
 
-    protected function getShippingCost(int $id_order, int $id_tax) : float
+    /**
+     * If available, get the shipping cost from Packlink module
+     * Otherwise return the default shipping cost
+     */
+    protected function getShippingCost(int $id_order) : float
     {
         /** @var \Packlink\BusinessLogic\OrderShipmentDetails\OrderShipmentDetailsService $shipmentDetailsService */
         $shipmentDetailsService = \Logeecom\Infrastructure\ServiceRegister::getService(
@@ -470,7 +481,7 @@ class StatsProfitMargin extends Module
         $shipmentDetails = $shipmentDetailsService->getDetailsByOrderId((string)$id_order);
 
         if (isset($shipmentDetails) && $shipmentDetails->getStatus() != 'pending') {
-            $tax_rate = $this->getTaxRate($id_tax);
+            $tax_rate = $this->getTaxRate(Configuration::get('PROFITMARGIN_SHIPPING_COST_TAX', 0));
             $shipping_cost = $shipmentDetails->getShippingCost() * (1 + $tax_rate/100);
         } else {
             $shipping_cost = Configuration::get('PROFITMARGIN_DEFAULT_SHIPPING_COST', 0);
