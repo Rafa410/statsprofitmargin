@@ -28,7 +28,8 @@ $sql = array();
 $sql[] = 'CREATE TABLE IF NOT EXISTS `' . _DB_PREFIX_ . 'order_profit_margin` (
     `id_order` int(11) NOT NULL UNIQUE,
     `profit` decimal(20,6),
-    `margin` decimal(10,3)
+    `margin` decimal(10,3),
+    `shipping_cost` decimal(10,3)
 ) ENGINE=' . _MYSQL_ENGINE_ . ' DEFAULT CHARSET=utf8;';
 
 foreach ($sql as $query) {
