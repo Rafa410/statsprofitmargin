@@ -36,7 +36,7 @@ class StatsProfitMargin extends Module
     {
         $this->name = 'statsprofitmargin';
         $this->tab = 'administration';
-        $this->version = '0.5';
+        $this->version = '0.6';
         $this->author = 'Rafa Soler';
         $this->need_instance = 0;
         $this->ps_versions_compliancy = [

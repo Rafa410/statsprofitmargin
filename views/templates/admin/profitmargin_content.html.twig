@@ -1,5 +1,5 @@
 <div class="tab-pane" id="profitMarginTabContent">
-    <form action="{{ shipping_cost_url }}" method="post">
+    <form id="setShippingCost" action="{{ shipping_cost_url }}" method="post">
         <input type="hidden" name="id_order" value="{{ id_order }}">
         <label for="shipping_cost">{{ 'Shipping cost'|trans({}, 'Modules.statsprofitmargin.Admin') }}</label>
         <input type="text" name="shipping_cost" value="{{ shipping_cost }}">

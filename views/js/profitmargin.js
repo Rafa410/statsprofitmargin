@@ -1,4 +1,3 @@
-<?php
 /**
 * 2007-2021 PrestaShop
 *
@@ -22,27 +21,33 @@
 *  @copyright 2007-2021 PrestaShop SA
 *  @license   http://opensource.org/licenses/afl-3.0.php  Academic Free License (AFL 3.0)
 *  International Registered Trademark & Property of PrestaShop SA
+*
+* Don't forget to prefix your containers with your own identifier
+* to avoid any conflicts with others containers.
 */
 
-require_once(__DIR__ . '/../../config/config.inc.php');
-require_once(__DIR__ . '/../../init.php');
+(function($) {
 
-$module_name = 'statsprofitmargin';
+    $(document).ready(function() {
+        $('#setShippingCost').on('submit', function(event) {
+            event.preventDefault();
 
-$token = pSQL(Tools::encrypt($module_name . '/setShippingCost.php'));
-$token_url = pSQL(Tools::getValue('token'));
+            const form = $(this);
+            const url = form.attr('action');
+    
+            $.post(url, form.serialize())
+                .done(function(success) {
+                    if (success) {
+                        alert('success');
+                    } else {
+                        alert('error');
+                    }
+                    
+                })
+                .fail(function(error) {
+                    alert(error);
+                })
+        })
+    })
 
-if ($token != $token_url || !Module::isInstalled($module_name)) {
-    exit;
-}
-
-$module = Module::getInstanceByName($module_name);
-
-if ($module->active) {
-	$id_order = Tools::getValue('id_order');
-    $shipping_cost = Tools::getValue('shipping_cost');
-
-    if (isset($id_order) && isset($shipping_cost)) {
-        echo $module->setShippingCost((int)$id_order, (float)$shipping_cost);
-    }
-}
+})(jQuery);
