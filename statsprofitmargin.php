@@ -36,7 +36,7 @@ class StatsProfitMargin extends Module
     {
         $this->name = 'statsprofitmargin';
         $this->tab = 'administration';
-        $this->version = '0.4';
+        $this->version = '0.5';
         $this->author = 'Rafa Soler';
         $this->need_instance = 0;
         $this->ps_versions_compliancy = [
@@ -297,12 +297,13 @@ class StatsProfitMargin extends Module
     }
 
     /**
-    * Add the CSS files that will be loaded in the BO.
+    * Add the CSS & JS files that will be loaded in the BO.
     */
     public function hookActionAdminControllerSetMedia($params)
     {
         if ($this->context->controller->php_self === 'AdminOrders') {
             $this->context->controller->addCSS($this->_path . 'views/css/profitmargin.css');
+            $this->context->controller->addJS($this->_path . 'views/js/profitmargin.js');
         }
     }
 
@@ -313,6 +314,11 @@ class StatsProfitMargin extends Module
 
     public function hookDisplayAdminOrderTabContent($params)
     {
+        $shipping_cost_url = $this->_path . 'setShippingCost.php?token=' . Tools::encrypt($this->name . '/setShippingCost.php');
+
+        $params['shipping_cost_url'] = $shipping_cost_url;
+        $params['shipping_cost'] = $this->getShippingCost((int)$params['id_order']);
+
         return $this->render(
             $this->getModuleTemplatePath() . 'profitmargin_content.html.twig', 
             $params
@@ -389,12 +395,8 @@ class StatsProfitMargin extends Module
         if ($profit_margin === false) {
             $profit_margin = $this->calculateProfitMargin($id_order);
             
-            $shipmentDetailsService = \Logeecom\Infrastructure\ServiceRegister::getService(
-                \Packlink\BusinessLogic\OrderShipmentDetails\OrderShipmentDetailsService::CLASS_NAME
-            );
-            $shipmentDetails = $shipmentDetailsService->getDetailsByOrderId((string)$id_order);
-            if (isset($shipmentDetails) && $shipmentDetails->getStatus() != 'pending') {
-                $db->insert('order_profit_margin', $profit_margin);    
+            if ($this->getPacklinkShippingStatus($id_order) != 'pending') {
+                $db->insert('order_profit_margin', $profit_margin);
             }
         }
 
@@ -456,6 +458,16 @@ class StatsProfitMargin extends Module
         return $profit_margin;
     }
 
+
+    protected function updateProfitMargin(int $id_order) : void
+    {
+        $profit_margin = $this->calculateProfitMargin((int)$id_order);
+        Db::getInstance()->update('order_profit_margin', array(
+            'profit' => $profit_margin['profit'],
+            'margin' => $profit_margin['margin']
+        ), 'id_order = ' . (int)$id_order, 1);
+    }
+
     protected function getPaymentFee(string $id_payment_module, float $revenue) : float 
     {
         $payment_fee_base = Configuration::get("PROFITMARGIN_PAYMENT_FEE_BASE_$id_payment_module");
@@ -467,25 +479,66 @@ class StatsProfitMargin extends Module
     }
 
     /**
-     * If available, get the shipping cost from Packlink module
-     * Otherwise return the default shipping cost
+     * If available, get the shipping cost from the DB
+     * otherwise, check for Packlink module
+     * otherwise return the default shipping cost
      */
     protected function getShippingCost(int $id_order) : float
+    {
+        $sql = new DbQuery();
+        $sql->select('shipping_cost');
+        $sql->from('order_profit_margin');
+        $sql->where('id_order = ' . (int)$id_order);
+        $shipping_cost = Db::getInstance()->getValue($sql);
+
+        if ($shipping_cost === false || $shipping_cost === null) {
+            $shipping_cost = $this->getPacklinkShippingCost($id_order);
+
+            if ($shipping_cost === null) {
+                $shipping_cost = Configuration::get('PROFITMARGIN_DEFAULT_SHIPPING_COST', 0);
+            }
+        }
+
+        return $shipping_cost;
+    }
+
+    protected function getPacklinkShippingStatus(int $id_order) : ?string 
+    {
+        $status = null;
+
+        $shipmentDetailsService = \Logeecom\Infrastructure\ServiceRegister::getService(
+            \Packlink\BusinessLogic\OrderShipmentDetails\OrderShipmentDetailsService::CLASS_NAME
+        );
+
+        if (isset($shipmentDetailsService)) {
+            $shipmentDetails = $shipmentDetailsService->getDetailsByOrderId((string)$id_order);
+            
+            if (isset($shipmentDetails)) {
+                $status = $shipmentDetails->getStatus();
+            }
+        }
+
+        return $status;
+    }
+
+    protected function getPacklinkShippingCost(int $id_order) : ?float 
     {
         /** @var \Packlink\BusinessLogic\OrderShipmentDetails\OrderShipmentDetailsService $shipmentDetailsService */
         $shipmentDetailsService = \Logeecom\Infrastructure\ServiceRegister::getService(
             \Packlink\BusinessLogic\OrderShipmentDetails\OrderShipmentDetailsService::CLASS_NAME
         );
 
-        $shipmentDetails = $shipmentDetailsService->getDetailsByOrderId((string)$id_order);
+        if (isset($shipmentDetailsService)) {
+            $shipmentDetails = $shipmentDetailsService->getDetailsByOrderId((string)$id_order);
+        }
 
         if (isset($shipmentDetails) && $shipmentDetails->getStatus() != 'pending') {
             $tax_rate = $this->getTaxRate(Configuration::get('PROFITMARGIN_SHIPPING_COST_TAX', 0));
             $shipping_cost = $shipmentDetails->getShippingCost() * (1 + $tax_rate/100);
         } else {
-            $shipping_cost = Configuration::get('PROFITMARGIN_DEFAULT_SHIPPING_COST', 0);
+            $shipping_cost = null;
         }
-
+        
         return $shipping_cost;
     }
 
@@ -507,6 +560,33 @@ class StatsProfitMargin extends Module
         $equivalence_surcharge = $wholesale_price * $equivalence_surcharge_percentage/100;
 
         return $equivalence_surcharge;
+    }
+
+    public function setShippingCost(int $id_order, float $shipping_cost) : bool
+    {
+        $db = Db::getInstance();
+
+        $sql = new DbQuery();
+        $sql->select('1');
+        $sql->from('order_profit_margin');
+        $sql->where('id_order = ' . (int)$id_order);
+
+        if ($db->getValue($sql)) { // Check if id_order already exists
+            $result = $db->update('order_profit_margin', array(
+                'shipping_cost' => (float)$shipping_cost
+            ), 'id_order = ' . (int)$id_order, 1);
+        } else {
+            $result = $db->insert('order_profit_margin', array(
+                'id_order' => (int)$id_order,
+                'profit' => null,
+                'margin' => null,
+                'shipping_cost' => (float)$shipping_cost
+            ), true);
+        }
+
+        $this->updateProfitMargin($id_order);
+
+        return $result;
     }
 
 }
