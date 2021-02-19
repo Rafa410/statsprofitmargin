@@ -2,7 +2,7 @@
 <module>
 	<name>statsprofitmargin</name>
 	<displayName><![CDATA[Profit margin calculator]]></displayName>
-	<version><![CDATA[0.1]]></version>
+	<version><![CDATA[0.6]]></version>
 	<description><![CDATA[Displays a column with the profit margin for each order in the "Orders" tab.]]></description>
 	<author><![CDATA[Rafa Soler]]></author>
 	<tab><![CDATA[administration]]></tab>
