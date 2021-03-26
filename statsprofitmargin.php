@@ -59,7 +59,7 @@ class StatsProfitMargin extends Module
      */
     public function install()
     {
-        include(dirname(__FILE__).'/sql/install.php');
+        include(__DIR__ . '/sql/install.php');
 
         return parent::install() &&
             $this->registerHook('actionAdminControllerSetMedia') &&
@@ -84,7 +84,7 @@ class StatsProfitMargin extends Module
             Configuration::deleteByName("PROFITMARGIN_PAYMENT_FEE_PERCENTAGE_{$payment_module['id_module']}");
         }
 
-        include(dirname(__FILE__).'/sql/uninstall.php');
+        include(__DIR__ . '/sql/uninstall.php');
 
         return parent::uninstall();
     }
@@ -124,7 +124,7 @@ class StatsProfitMargin extends Module
         $helper->identifier = $this->identifier;
         $helper->submit_action = 'submitStatsProfitMarginModule';
         $helper->currentIndex = $this->context->link->getAdminLink('AdminModules', false)
-            .'&configure='.$this->name.'&tab_module='.$this->tab.'&module_name='.$this->name;
+            . '&configure=' . $this->name . '&tab_module=' . $this->tab . '&module_name=' . $this->name;
         $helper->token = Tools::getAdminTokenLite('AdminModules');
 
         $helper->tpl_vars = array(
@@ -138,6 +138,7 @@ class StatsProfitMargin extends Module
 
     /**
      * Create the structure of the form.
+     * @TODO: Discounts by brand
      */
     protected function getConfigForm()
     {
@@ -176,7 +177,6 @@ class StatsProfitMargin extends Module
 
 
         $available_taxes = $this->getAvailableTaxes();
-
         foreach ($available_taxes as $tax) {
             $config_form['form']['input'][] = array(
                 'type' => 'text',
@@ -188,7 +188,7 @@ class StatsProfitMargin extends Module
             );
         }
 
-        $config_form['form']['input'][] = array(
+        $config_form['form']['input'][] = array( // @TODO: Default shipping cost for each carrier
             'type' => 'text',
             'name' => 'PROFITMARGIN_DEFAULT_SHIPPING_COST',
             'label' => $this->l('Default shipping cost'),
@@ -379,7 +379,8 @@ class StatsProfitMargin extends Module
     }
 
     /** 
-     * If available, get the profit & margin from the DB, otherwise calculate it 
+     * If available, get the profit & margin from the DB
+     * otherwise calculate it 
      */
     protected function getProfitMargin(int $id_order)
     {
